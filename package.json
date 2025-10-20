@@ -1,0 +1,26 @@
+{
+  "name": "reit",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AbuzarGhazanfarKhan/cropmentum-riet.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AbuzarGhazanfarKhan/cropmentum-riet/issues"
+  },
+  "homepage": "https://github.com/AbuzarGhazanfarKhan/cropmentum-riet#readme",
+  "description": "",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.19.4"
+  }
+}
