@@ -10,6 +10,7 @@ pragma solidity ^0.8.17;
   - The contract must be pre-funded with tokenTo to fulfill swaps.
   - Reentrancy guarded.
   - NOTE: For production, consider integrating with automated market makers (AMMs) or on-chain price oracles.
+  - Added vesting awareness: swap contract can be exempt from vesting checks if needed.
 */
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";

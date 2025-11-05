@@ -6,6 +6,7 @@ pragma solidity ^0.8.17;
   - Deploys REITToken instances using simple CREATE (for clarity).
   - Keeps registry of created REIT tokens and metadata.
   - Factory owner (platform) can be admin to perform administrative tasks or flag tokens.
+  - Now supports vesting for company shares (5 days lock)
 */
 
 import "./REITToken.sol";
