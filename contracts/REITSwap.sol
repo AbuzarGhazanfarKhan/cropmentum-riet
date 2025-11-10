@@ -3,71 +3,85 @@ pragma solidity ^0.8.17;
 
 /*
   REITSwap
-  - Simple swap contract that holds reserves of multiple REIT tokens.
-  - Owner sets fixed exchange rates between token pairs (price = how many tokenTo units per 1 tokenFrom, scaled by 1e18).
-  - Users call swap(tokenFrom, tokenTo, amountFrom, minAmountTo) to swap.
+  - Integrated with Uniswap v3 router for AMM-based swaps.
+  - Users call swap(tokenFrom, tokenTo, amountFrom, minAmountTo, fee) to swap via Uniswap.
   - Requires user to approve tokenFrom to this contract.
-  - The contract must be pre-funded with tokenTo to fulfill swaps.
   - Reentrancy guarded.
-  - NOTE: For production, consider integrating with automated market makers (AMMs) or on-chain price oracles.
-  - Added vesting awareness: swap contract can be exempt from vesting checks if needed.
+  - NOTE: This is a sample integration; for production, handle multi-hop paths, slippage, and fees appropriately.
 */
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+interface ISwapRouter {
+    struct ExactInputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        uint24 fee;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+        uint160 sqrtPriceLimitX96;
+    }
+
+    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
+}
+
 contract REITSwap is Ownable, ReentrancyGuard {
-    // price mapping: price[tokenFrom][tokenTo] => price scaled by 1e18: tokenTo per 1 tokenFrom
-    mapping(address => mapping(address => uint256)) public price;
+    ISwapRouter public immutable swapRouter;
+    address public immutable WETH9; // Wrapped ETH for ETH swaps if needed
 
-    event PriceSet(address indexed from, address indexed to, uint256 priceScaled);
-    event Swapped(address indexed user, address indexed from, address indexed to, uint256 amountFrom, uint256 amountTo);
+    event Swapped(address indexed user, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
 
-    uint256 public constant SCALE = 1e18;
-
-    // Set price: amount of tokenTo per 1 tokenFrom, scaled by 1e18
-    function setPrice(address tokenFrom, address tokenTo, uint256 priceScaled) external onlyOwner {
-        require(tokenFrom != address(0) && tokenTo != address(0), "zero token");
-        require(priceScaled > 0, "price zero");
-        price[tokenFrom][tokenTo] = priceScaled;
-        emit PriceSet(tokenFrom, tokenTo, priceScaled);
+    constructor(address _swapRouter, address _weth9) {
+        require(_swapRouter != address(0), "zero router");
+        swapRouter = ISwapRouter(_swapRouter);
+        WETH9 = _weth9;
     }
 
-    // Swap tokenFrom for tokenTo at set price.
-    // User must approve `amountFrom` of tokenFrom to this contract.
-    function swap(address tokenFrom, address tokenTo, uint256 amountFrom, uint256 minAmountTo) external nonReentrant {
-        require(amountFrom > 0, "amount 0");
-        uint256 p = price[tokenFrom][tokenTo];
-        require(p > 0, "price not set");
+    // Swap tokenFrom for tokenTo via Uniswap v3.
+    // User must approve `amountIn` of tokenFrom to this contract.
+    // fee: pool fee tier (e.g., 3000 for 0.3%, 500 for 0.05%, 10000 for 1%)
+    function swap(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMinimum,
+        uint24 fee
+    ) external nonReentrant returns (uint256 amountOut) {
+        require(amountIn > 0, "amountIn zero");
+        require(tokenIn != address(0) && tokenOut != address(0), "zero token");
 
-        // calculate amountTo = amountFrom * p / SCALE
-        uint256 amountTo = (amountFrom * p) / SCALE;
-        require(amountTo >= minAmountTo, "slippage");
+        IERC20 token = IERC20(tokenIn);
 
-        IERC20 from = IERC20(tokenFrom);
-        IERC20 to = IERC20(tokenTo);
+        // Transfer tokenIn from user to contract
+        require(token.transferFrom(msg.sender, address(this), amountIn), "transferFrom failed");
 
-        // transfer tokenFrom from user to contract
-        require(from.transferFrom(msg.sender, address(this), amountFrom), "transferFrom failed");
+        // Approve router to spend tokenIn
+        token.approve(address(swapRouter), amountIn);
 
-        // ensure contract has enough tokenTo reserve
-        uint256 reserve = to.balanceOf(address(this));
-        require(reserve >= amountTo, "insufficient reserve");
+        // Prepare swap params
+        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
+            tokenIn: tokenIn,
+            tokenOut: tokenOut,
+            fee: fee,
+            recipient: msg.sender, // Send directly to user
+            deadline: block.timestamp,
+            amountIn: amountIn,
+            amountOutMinimum: amountOutMinimum,
+            sqrtPriceLimitX96: 0 // No price limit
+        });
 
-        // transfer tokenTo to user
-        require(to.transfer(msg.sender, amountTo), "transfer failed");
+        // Execute swap
+        amountOut = swapRouter.exactInputSingle(params);
 
-        emit Swapped(msg.sender, tokenFrom, tokenTo, amountFrom, amountTo);
+        emit Swapped(msg.sender, tokenIn, tokenOut, amountIn, amountOut);
     }
 
-    // Owner can withdraw tokens (for liquidity management)
+    // Owner can withdraw any stuck tokens
     function withdrawToken(address token, address to, uint256 amount) external onlyOwner {
         IERC20(token).transfer(to, amount);
-    }
-
-    // helper to view price scaled
-    function getPrice(address tokenFrom, address tokenTo) external view returns (uint256) {
-        return price[tokenFrom][tokenTo];
     }
 }
